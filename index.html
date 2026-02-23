@@ -780,6 +780,7 @@ function renderMessage(text, from, name, time, disappearSecs, msgId, replyTo) {
 
   const tickHtml = from === 'you' ? `<span class="read-tick" id="tick-${msgId}">✓</span>` : '';
 
+  // Build structure via innerHTML (no nested template literals for IDs)
   w.innerHTML = `
     <div class="msg-wrap">
       ${replyHtml}
@@ -787,17 +788,29 @@ function renderMessage(text, from, name, time, disappearSecs, msgId, replyTo) {
       <div class="reactions" id="reactions-${msgId}"></div>
     </div>
     <div class="msg-actions">
-      <button class="action-btn" onclick="startReply('${msgId}')">↩ Reply</button>
-      <button class="action-btn" onclick="toggleEmojiPicker('${msgId}')">😊 React</button>
+      <button class="action-btn" data-reply="${msgId}">↩ Reply</button>
+      <button class="action-btn" data-react="${msgId}">😊 React</button>
     </div>
-    <div class="emoji-picker" id="ep-${msgId}">
-      ${EMOJIS.map(e => `<span class="emoji-opt" onclick="sendReaction('${msgId}','${e}')">${e}</span>`).join('')}
-    </div>
+    <div class="emoji-picker" id="ep-${msgId}"></div>
     <div class="msg-meta">
       ${from === 'you' ? 'you' : escHtml(name)} · ${time}
       <span class="lock-icon">🔒</span>
       ${tickHtml}
     </div>`;
+
+  // Build emoji picker via DOM so msgId is always correctly captured
+  const ep = document.getElementById('ep-' + msgId);
+  EMOJIS.forEach(emoji => {
+    const span = document.createElement('span');
+    span.className = 'emoji-opt';
+    span.textContent = emoji;
+    span.addEventListener('click', () => sendReaction(msgId, emoji));
+    ep.appendChild(span);
+  });
+
+  // Wire up reply and react buttons safely via DOM (not inline onclick)
+  w.querySelector('[data-reply]').addEventListener('click', () => startReply(msgId));
+  w.querySelector('[data-react]').addEventListener('click', () => toggleEmojiPicker(msgId));
 
   messagesEl.appendChild(w); scroll();
   if (disappearSecs) scheduleDisappear(w, disappearSecs);
