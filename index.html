@@ -364,18 +364,28 @@ async function deriveSharedKey(theirPubB64) {
   document.getElementById('enc-indicator').classList.add('active');
   document.getElementById('enc-indicator').querySelector('span').textContent = 'encrypted';
   addSystemMsg('🔐 end-to-end encryption active', true);
+  // Send an encrypted ping to confirm both sides have matching keys
+  try {
+    const ping = await encryptText('__ping__');
+    conn.send({ type:'ping', enc: ping });
+  } catch(e) {}
 }
 
 async function encryptText(text) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, sharedKey, new TextEncoder().encode(text));
-  const out = new Uint8Array(12+ct.byteLength); out.set(iv); out.set(new Uint8Array(ct),12);
+  const encoded = new TextEncoder().encode(text);
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, sharedKey, encoded);
+  const out = new Uint8Array(12 + ct.byteLength);
+  out.set(iv, 0);
+  out.set(new Uint8Array(ct), 12);
   return bufToB64(out.buffer);
 }
 
 async function decryptText(b64) {
-  const buf = b64ToBuf(b64);
-  const pt = await crypto.subtle.decrypt({name:'AES-GCM',iv:buf.slice(0,12)}, sharedKey, buf.slice(12));
+  const buf = b64ToBuf(b64); // ArrayBuffer
+  const iv = buf.slice(0, 12);
+  const ciphertext = buf.slice(12);
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv: new Uint8Array(iv)}, sharedKey, ciphertext);
   return new TextDecoder().decode(pt);
 }
 
@@ -387,11 +397,18 @@ async function encryptBuf(ab) {
 }
 
 async function decryptBuf(ab) {
-  return crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(ab.slice(0,12))}, sharedKey, ab.slice(12));
+  const iv = new Uint8Array(ab.slice(0, 12));
+  const ciphertext = ab.slice(12);
+  return crypto.subtle.decrypt({name:'AES-GCM', iv}, sharedKey, ciphertext);
 }
 
 // ── HELPERS ──
-function bufToB64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function bufToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
 function b64ToBuf(b64) { const s=atob(b64),a=new Uint8Array(s.length); for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i); return a.buffer; }
 function fmtFingerprint(buf) { return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('').match(/.{1,4}/g).join(' ').toUpperCase().substring(0,47); }
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -600,6 +617,24 @@ async function setupConn() {
         playNotif();
         if (document.hidden && Notification.permission==='granted') new Notification('RELAY · '+data.name,{body:text});
       } catch(e) { addSystemMsg('⚠ could not decrypt a message — wrong password?'); }
+
+    } else if (data.type==='ping') {
+      // Reply to confirm our key works too
+      try {
+        const check = await decryptText(data.enc);
+        if (check === '__ping__') {
+          const pong = await encryptText('__pong__');
+          conn.send({ type:'pong', enc: pong });
+        }
+      } catch(e) {
+        addSystemMsg('⚠ encryption key mismatch — please reconnect');
+      }
+
+    } else if (data.type==='pong') {
+      // Confirmed — keys match on both sides
+      try { await decryptText(data.enc); } catch(e) {
+        addSystemMsg('⚠ encryption key mismatch — please reconnect');
+      }
 
     } else if (data.type==='typing') {
       document.getElementById('typing-indicator').classList.toggle('visible',data.value);
