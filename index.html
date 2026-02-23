@@ -99,12 +99,14 @@
   .reply-bar-name { color: var(--accent2); font-weight: 500; }
   .reply-cancel { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; flex-shrink: 0; }
   .msg-wrap { position: relative; display: flex; flex-direction: column; }
-  .msg-actions { display: none; position: absolute; top: 0; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 3px 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 10; }
-  .msg.you .msg-actions { left: -90px; }
-  .msg.them .msg-actions { right: -90px; }
-  .msg-wrap:hover .msg-actions { display: flex; }
-  .action-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; transition: background 0.15s; }
-  .action-btn:hover { background: var(--surface2); }
+  /* Action bar sits below the bubble, always in flow — no floating */
+  .msg-actions { display: none; flex-direction: row; gap: 2px; margin-top: 3px; }
+  .msg.you .msg-actions { justify-content: flex-end; }
+  .msg.them .msg-actions { justify-content: flex-start; }
+  .msg:hover .msg-actions { display: flex; }
+  .msg-actions:hover { display: flex; } /* keep visible when hovering buttons */
+  .action-btn { background: var(--surface); border: 1px solid var(--border); cursor: pointer; font-size: 0.8rem; padding: 3px 8px; border-radius: 20px; transition: background 0.15s; color: var(--muted); }
+  .action-btn:hover { background: var(--surface2); color: var(--text); }
 
   /* Emoji reactions */
   .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
@@ -114,9 +116,9 @@
   .reaction-count { font-size: 0.68rem; color: var(--muted); }
 
   /* Emoji picker */
-  .emoji-picker { display: none; position: absolute; bottom: 44px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); z-index: 50; flex-wrap: wrap; gap: 4px; width: 220px; }
-  .msg.you .emoji-picker { right: 0; }
-  .msg.them .emoji-picker { left: 0; }
+  .emoji-picker { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); z-index: 50; flex-wrap: wrap; gap: 4px; width: 224px; margin-top: 4px; }
+  .msg.you .emoji-picker { align-self: flex-end; }
+  .msg.them .emoji-picker { align-self: flex-start; }
   .emoji-picker.open { display: flex; }
   .emoji-opt { font-size: 1.2rem; cursor: pointer; padding: 4px; border-radius: 6px; transition: background 0.1s; }
   .emoji-opt:hover { background: var(--surface2); }
@@ -780,16 +782,16 @@ function renderMessage(text, from, name, time, disappearSecs, msgId, replyTo) {
 
   w.innerHTML = `
     <div class="msg-wrap">
-      <div class="msg-actions">
-        <button class="action-btn" onclick="startReply('${msgId}')" title="Reply">↩</button>
-        <button class="action-btn" onclick="toggleEmojiPicker('${msgId}')" title="React">😊</button>
-      </div>
-      <div class="emoji-picker" id="ep-${msgId}">
-        ${EMOJIS.map(e => `<span class="emoji-opt" onclick="sendReaction('${msgId}','${e}')">${e}</span>`).join('')}
-      </div>
       ${replyHtml}
       <div class="msg-bubble">${escHtml(text)}</div>
       <div class="reactions" id="reactions-${msgId}"></div>
+    </div>
+    <div class="msg-actions">
+      <button class="action-btn" onclick="startReply('${msgId}')">↩ Reply</button>
+      <button class="action-btn" onclick="toggleEmojiPicker('${msgId}')">😊 React</button>
+    </div>
+    <div class="emoji-picker" id="ep-${msgId}">
+      ${EMOJIS.map(e => `<span class="emoji-opt" onclick="sendReaction('${msgId}','${e}')">${e}</span>`).join('')}
     </div>
     <div class="msg-meta">
       ${from === 'you' ? 'you' : escHtml(name)} · ${time}
@@ -986,7 +988,7 @@ function applyReaction(msgId, emoji, from) {
 
 // Close emoji pickers on outside click
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.emoji-picker') && !e.target.closest('.action-btn')) {
+  if (!e.target.closest('.emoji-picker') && !e.target.closest('.msg-actions')) {
     closeAllEmojiPickers();
   }
 });
