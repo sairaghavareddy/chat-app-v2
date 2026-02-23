@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RELAY — Encrypted Chat</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f0e8; --surface: #ede8df; --surface2: #e4ddd3;
+    --border: #d0c8bc; --accent: #c0392b; --accent2: #2c3e50;
+    --text: #1a1614; --muted: #8a7f74;
+    --you-bg: #2c3e50; --you-text: #f5f0e8;
+    --them-bg: #fff; --them-border: #d0c8bc;
+    --radius: 14px; --radius-sm: 6px; --green: #27ae60;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Mono', monospace; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* LOBBY */
+  #lobby { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .lobby-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 36px; width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 20px; box-shadow: 0 8px 40px rgba(0,0,0,0.08); }
+  .lobby-logo { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 2rem; color: var(--accent); }
+  .lobby-logo span { color: var(--accent2); }
+  .lobby-tagline { font-size: 0.72rem; color: var(--muted); margin-top: -12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .e2e-badge { background: var(--green); color: #fff; font-size: 0.6rem; padding: 2px 7px; border-radius: 20px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border: 1.5px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .tab { flex: 1; background: none; border: none; padding: 10px; font-family: 'DM Mono', monospace; font-size: 0.78rem; cursor: pointer; color: var(--muted); transition: background 0.2s, color 0.2s; }
+  .tab.active { background: var(--accent2); color: #fff; }
+
+  .tab-panel { display: none; flex-direction: column; gap: 14px; }
+  .tab-panel.active { display: flex; }
+
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+  .field-label { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .field-input { background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.88rem; padding: 11px 13px; outline: none; width: 100%; transition: border-color 0.2s; }
+  .field-input:focus { border-color: var(--accent); }
+  .field-input::placeholder { color: var(--muted); }
+  .field-hint { font-size: 0.67rem; color: var(--muted); line-height: 1.55; }
+
+  .lobby-btn { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); font-family: 'Bricolage Grotesque', sans-serif; font-weight: 600; font-size: 1rem; padding: 13px; cursor: pointer; width: 100%; transition: opacity 0.2s; }
+  .lobby-btn:hover { opacity: 0.88; }
+  .lobby-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .lobby-btn.secondary { background: var(--accent2); }
+
+  .lobby-status { font-size: 0.72rem; color: var(--muted); text-align: center; min-height: 1em; }
+  .lobby-status.error { color: var(--accent); }
+
+  /* Share link box */
+  .share-box { background: var(--bg); border: 1.5px solid var(--green); border-radius: var(--radius-sm); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .share-box-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--green); }
+  .share-url { font-size: 0.72rem; word-break: break-all; color: var(--text); line-height: 1.5; }
+  .copy-btn { background: var(--green); color: #fff; border: none; border-radius: var(--radius-sm); font-family: 'DM Mono', monospace; font-size: 0.72rem; padding: 7px; cursor: pointer; }
+
+  /* HEADER */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--surface); }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .logo { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 1.1rem; color: var(--accent); }
+  .room-badge { background: var(--accent2); color: #fff; font-size: 0.65rem; padding: 3px 9px; border-radius: 20px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .enc-indicator { display: flex; align-items: center; gap: 5px; font-size: 0.65rem; color: var(--muted); padding: 4px 9px; border: 1px solid var(--border); border-radius: 20px; cursor: pointer; transition: border-color 0.3s, color 0.3s; white-space: nowrap; }
+  .enc-indicator.active { border-color: var(--green); color: var(--green); }
+  .status-pill { display: flex; align-items: center; gap: 6px; font-size: 0.65rem; color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.4s; }
+  .dot.connecting { background: #e67e22; animation: pulse 1s infinite; }
+  .dot.connected { background: var(--green); }
+  .dot.error { background: var(--accent); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .icon-btn { background: none; border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); font-size: 0.9rem; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+  /* MESSAGES */
+  main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .msg { display: flex; flex-direction: column; gap: 3px; max-width: 75%; animation: msgIn 0.18s ease; }
+  @keyframes msgIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .msg.you { align-self: flex-end; align-items: flex-end; }
+  .msg.them { align-self: flex-start; align-items: flex-start; }
+  .msg-meta { font-size: 0.6rem; color: var(--muted); padding: 0 4px; display: flex; align-items: center; gap: 5px; }
+  .lock-icon { font-size: 0.6rem; color: var(--green); }
+  .msg.fading { animation: fadeOut 1s ease forwards; }
+  @keyframes fadeOut { 0%{opacity:1;transform:scale(1)} 100%{opacity:0;transform:scale(0.95)height:0;margin:0;padding:0} }
+  .disappear-badge { font-size: 0.55rem; color: #e67e22; margin-left: 3px; }
+
+  /* Read receipts */
+  .read-tick { font-size: 0.6rem; margin-left: 3px; color: var(--muted); transition: color 0.3s; }
+  .read-tick.read { color: #3498db; }
+
+  /* Reply */
+  .reply-preview { background: rgba(44,62,80,0.08); border-left: 3px solid var(--accent2); padding: 5px 10px; font-size: 0.7rem; color: var(--muted); border-radius: 4px; margin-bottom: 4px; cursor: pointer; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .msg.you .reply-preview { background: rgba(255,255,255,0.12); border-left-color: rgba(255,255,255,0.5); color: rgba(245,240,232,0.7); }
+  .reply-bar { display: none; background: var(--surface2); border-top: 1px solid var(--border); padding: 8px 16px; font-size: 0.72rem; color: var(--muted); flex-shrink: 0; align-items: center; gap: 8px; }
+  .reply-bar.visible { display: flex; }
+  .reply-bar-text { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .reply-bar-name { color: var(--accent2); font-weight: 500; }
+  .reply-cancel { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; flex-shrink: 0; }
+  .msg-wrap { position: relative; display: flex; flex-direction: column; }
+  .msg-actions { display: none; position: absolute; top: 0; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 3px 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 10; }
+  .msg.you .msg-actions { left: -90px; }
+  .msg.them .msg-actions { right: -90px; }
+  .msg-wrap:hover .msg-actions { display: flex; }
+  .action-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; transition: background 0.15s; }
+  .action-btn:hover { background: var(--surface2); }
+
+  /* Emoji reactions */
+  .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .reaction-pill { display: flex; align-items: center; gap: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 2px 8px; font-size: 0.78rem; cursor: pointer; transition: background 0.15s, border-color 0.15s; user-select: none; }
+  .reaction-pill:hover { background: var(--surface2); }
+  .reaction-pill.mine { border-color: var(--accent2); background: rgba(44,62,80,0.08); }
+  .reaction-count { font-size: 0.68rem; color: var(--muted); }
+
+  /* Emoji picker */
+  .emoji-picker { display: none; position: absolute; bottom: 44px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); z-index: 50; flex-wrap: wrap; gap: 4px; width: 220px; }
+  .msg.you .emoji-picker { right: 0; }
+  .msg.them .emoji-picker { left: 0; }
+  .emoji-picker.open { display: flex; }
+  .emoji-opt { font-size: 1.2rem; cursor: pointer; padding: 4px; border-radius: 6px; transition: background 0.1s; }
+  .emoji-opt:hover { background: var(--surface2); }
+  /* disappear timer settings in lobby */
+  .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .setting-label { font-size: 0.72rem; color: var(--text); }
+  .setting-select { background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.78rem; padding: 6px 10px; outline: none; cursor: pointer; }
+  .msg-bubble { padding: 10px 14px; font-size: 0.82rem; line-height: 1.6; word-break: break-word; }
+  .msg.you .msg-bubble { background: var(--you-bg); color: var(--you-text); border-radius: var(--radius) var(--radius) 4px var(--radius); }
+  .msg.them .msg-bubble { background: var(--them-bg); color: var(--text); border: 1px solid var(--them-border); border-radius: var(--radius) var(--radius) var(--radius) 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  .file-bubble { display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 0.78rem; line-height: 1.4; text-decoration: none; }
+  .msg.you .file-bubble { background: var(--you-bg); color: var(--you-text); border-radius: var(--radius) var(--radius) 4px var(--radius); }
+  .msg.them .file-bubble { background: var(--them-bg); color: var(--text); border: 1px solid var(--them-border); border-radius: var(--radius) var(--radius) var(--radius) 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  .file-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .file-name { font-weight: 500; word-break: break-all; }
+  .file-size { font-size: 0.65rem; opacity: 0.6; }
+  .img-bubble img { max-width: 220px; max-height: 180px; border-radius: 10px; display: block; cursor: pointer; border: 1px solid var(--border); }
+  .sys-msg { align-self: center; font-size: 0.65rem; color: var(--muted); padding: 4px 12px; background: var(--surface2); border-radius: 20px; animation: msgIn 0.2s ease; text-align: center; }
+  .sys-msg.secure { border: 1px solid var(--green); color: var(--green); background: rgba(39,174,96,0.07); }
+  .typing-indicator { display: none; align-self: flex-start; gap: 4px; padding: 10px 14px; background: var(--them-bg); border: 1px solid var(--them-border); border-radius: var(--radius) var(--radius) var(--radius) 4px; align-items: center; }
+  .typing-indicator.visible { display: flex; }
+  .typing-indicator span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: tb 1.2s infinite; }
+  .typing-indicator span:nth-child(2) { animation-delay: 0.18s; }
+  .typing-indicator span:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes tb { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+  .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--muted); font-size: 0.75rem; text-align: center; padding: 20px; }
+  .empty-state .icon { font-size: 2.5rem; }
+
+  /* HISTORY */
+  .history-banner { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 8px 16px; font-size: 0.68rem; color: var(--muted); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .clear-btn { background: none; border: none; color: var(--accent); font-size: 0.68rem; cursor: pointer; font-family: 'DM Mono', monospace; text-decoration: underline; }
+
+  /* INPUT */
+  .input-bar { border-top: 1px solid var(--border); background: var(--surface); padding: 12px 16px; display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0; }
+  .file-attach-btn { background: none; border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); font-size: 1.1rem; width: 40px; height: 40px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .file-attach-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  #file-input { display: none; }
+  #msg-input { flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.85rem; padding: 10px 14px; outline: none; resize: none; transition: border-color 0.2s; max-height: 120px; line-height: 1.5; }
+  #msg-input:focus { border-color: var(--accent2); }
+  #msg-input::placeholder { color: var(--muted); }
+  #msg-input:disabled { opacity: 0.4; cursor: not-allowed; }
+  #send-btn { background: var(--accent); border: none; border-radius: var(--radius-sm); color: #fff; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 600; font-size: 0.85rem; padding: 0 18px; height: 40px; cursor: pointer; flex-shrink: 0; transition: opacity 0.2s; }
+  #send-btn:hover { opacity: 0.88; }
+  #send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .disappear-select { background: var(--bg); border: 1.5px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); font-family: 'DM Mono', monospace; font-size: 0.72rem; padding: 0 8px; height: 40px; cursor: pointer; outline: none; flex-shrink: 0; transition: border-color 0.2s, color 0.2s; }
+  .disappear-select:disabled { opacity: 0.3; cursor: not-allowed; }
+  .disappear-select.active { border-color: #e67e22; color: #e67e22; }
+
+  /* LIGHTBOX */
+  #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; align-items: center; justify-content: center; cursor: zoom-out; }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 10px; }
+
+  /* FINGERPRINT MODAL */
+  #fp-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center; padding: 20px; }
+  #fp-modal.open { display: flex; }
+  .fp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; max-width: 380px; width: 100%; display: flex; flex-direction: column; gap: 14px; }
+  .fp-card h3 { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 1.1rem; }
+  .fp-card p { font-size: 0.74rem; color: var(--muted); line-height: 1.6; }
+  .fp-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 0.7rem; word-break: break-all; line-height: 1.7; letter-spacing: 0.04em; color: var(--green); }
+  .fp-label { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 3px; }
+  .fp-close { background: var(--accent2); color: #fff; border: none; border-radius: var(--radius-sm); padding: 10px; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+
+  @media (max-width: 500px) {
+    .lobby-card { padding: 22px 16px; }
+    .msg { max-width: 88%; }
+    .enc-indicator span { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="lightbox" onclick="closeLightbox()"><img id="lightbox-img" src="" alt=""></div>
+
+<div id="fp-modal">
+  <div class="fp-card">
+    <h3>🔐 Encryption Fingerprints</h3>
+    <p>Call your friend and read these codes to each other out loud. If they match on both screens, your chat is secure and nobody is intercepting.</p>
+    <div><div class="fp-label">Your key</div><div class="fp-box" id="fp-mine">—</div></div>
+    <div><div class="fp-label">Their key</div><div class="fp-box" id="fp-theirs">—</div></div>
+    <button class="fp-close" onclick="document.getElementById('fp-modal').classList.remove('open')">Close</button>
+  </div>
+</div>
+
+<!-- LOBBY -->
+<div id="lobby">
+  <div class="lobby-card">
+    <div>
+      <div class="lobby-logo">RE<span>LAY</span></div>
+      <div class="lobby-tagline">private · peer-to-peer <span class="e2e-badge">E2E ENCRYPTED</span></div>
+    </div>
+
+    <!-- Name field (shared) -->
+    <div class="field-group">
+      <label class="field-label">Your name</label>
+      <input class="field-input" id="lobby-name" placeholder="e.g. Alice" maxlength="20">
+    </div>
+
+    <!-- Tabs: Create vs Join -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('create')">Create Room</button>
+      <button class="tab" onclick="switchTab('join')">Join Room</button>
+    </div>
+
+    <!-- CREATE PANEL -->
+    <div class="tab-panel active" id="panel-create">
+      <div class="field-group">
+        <label class="field-label">Room password (encryption key)</label>
+        <input class="field-input" id="create-password" placeholder="anything you like, e.g. sunshine42" maxlength="60">
+        <div class="field-hint">This is used to encrypt your messages. Share it with your friend privately (call/in person).</div>
+      </div>
+      <button class="lobby-btn" id="create-btn" onclick="createRoom()">Create Room →</button>
+
+      <!-- Share link shown after creating -->
+      <div class="share-box" id="share-box" style="display:none">
+        <div class="share-box-label">✓ Room created! Share this link with your friend:</div>
+        <div class="share-url" id="share-url"></div>
+        <button class="copy-btn" onclick="copyShareLink()">Copy link</button>
+        <div class="field-hint" style="color:var(--green)">Waiting for your friend to join… keep this tab open.</div>
+      </div>
+    </div>
+
+    <!-- JOIN PANEL -->
+    <div class="tab-panel" id="panel-join">
+      <div class="field-group">
+        <label class="field-label">Room link or ID</label>
+        <input class="field-input" id="join-id" placeholder="paste the link or room ID here">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Room password</label>
+        <input class="field-input" id="join-password" placeholder="the password your friend shared with you" maxlength="60">
+      </div>
+      <button class="lobby-btn secondary" id="join-btn" onclick="joinRoom()">Join Room →</button>
+    </div>
+
+    <div class="lobby-status" id="lobby-status"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<header>
+  <div class="header-left">
+    <div class="logo">RELAY</div>
+    <div class="room-badge" id="room-badge"></div>
+  </div>
+  <div class="header-right">
+    <div class="enc-indicator" id="enc-indicator" onclick="document.getElementById('fp-modal').classList.add('open')" title="Click to verify">
+      🔒 <span>not encrypted</span>
+    </div>
+    <button class="icon-btn" id="sound-toggle" onclick="toggleSound()">🔔</button>
+    <div class="status-pill">
+      <div class="dot connecting" id="dot"></div>
+      <span id="status-text">connecting…</span>
+    </div>
+  </div>
+</header>
+
+<div class="history-banner" id="history-banner" style="display:none">
+  <span id="history-count"></span>
+  <button class="clear-btn" onclick="clearHistory()">clear history</button>
+</div>
+
+<main>
+  <div class="messages" id="messages">
+    <div class="empty-state" id="empty-state">
+      <div class="icon">🔐</div>
+      <div>waiting for your friend to join…</div>
+      <div style="font-size:0.65rem;margin-top:4px">keep this tab open and share the link</div>
+    </div>
+  </div>
+  <div class="typing-indicator" id="typing-indicator"><span></span><span></span><span></span></div>
+</main>
+
+<div class="reply-bar" id="reply-bar">
+  <div class="reply-bar-text">↩ replying to <span class="reply-bar-name" id="reply-bar-name"></span>: <span id="reply-bar-text"></span></div>
+  <button class="reply-cancel" onclick="cancelReply()" title="Cancel">✕</button>
+</div>
+<div class="input-bar">
+  <button class="file-attach-btn" id="attach-btn" onclick="document.getElementById('file-input').click()" disabled>📎</button>
+  <input type="file" id="file-input" onchange="sendFile(this)">
+  <textarea id="msg-input" rows="1" placeholder="type a message… (Enter to send)" disabled></textarea>
+  <select id="disappear-timer" class="disappear-select" title="Your messages disappear after…" disabled>
+    <option value="0">⏱ Off</option>
+    <option value="1800">⏱ 30 min</option>
+    <option value="3600">⏱ 1 hour</option>
+    <option value="86400">⏱ 1 day</option>
+    <option value="604800">⏱ 1 week</option>
+  </select>
+  <button id="send-btn" disabled onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+// ── STATE ──
+let peer, conn, myKeyPair, sharedKey;
+let disappearSeconds = 0; // 0 = off
+let replyingTo = null;     // { msgId, name, text }
+let reconnectTimer = null;
+let reconnectAttempt = 0;
+let intentionalDisconnect = false;
+const MAX_RECONNECT_ATTEMPTS = 8;
+const RECONNECT_DELAYS = [2, 4, 8, 15, 30, 60, 120, 300]; // seconds
+let offlineQueue = [];     // messages queued while friend is offline
+let msgCounter = 0;        // for unique message IDs
+const EMOJIS = ['👍','❤️','😂','😮','😢','🔥','👏','🎉','😍','💯'];
+let myName = '', roomPassword = '', myPeerId = '';
+let myFingerprint = '', theirFingerprint = '';
+let soundEnabled = true, isTyping = false, typingTimer;
+const CHUNK_SIZE = 12 * 1024, MAX_FILE_MB = 20;
+let incomingFiles = {};
+
+// ── TAB SWITCHING ──
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (tab==='create'&&i===0)||(tab==='join'&&i===1)));
+  document.getElementById('panel-create').classList.toggle('active', tab==='create');
+  document.getElementById('panel-join').classList.toggle('active', tab==='join');
+}
+
+// ── CRYPTO ──
+async function generateKeyPair() {
+  myKeyPair = await crypto.subtle.generateKey({ name:'ECDH', namedCurve:'P-256' }, true, ['deriveKey']);
+  const raw = await crypto.subtle.exportKey('raw', myKeyPair.publicKey);
+  const hash = await crypto.subtle.digest('SHA-256', raw);
+  myFingerprint = fmtFingerprint(hash);
+  document.getElementById('fp-mine').textContent = myFingerprint;
+}
+
+async function exportPublicKey() {
+  const raw = await crypto.subtle.exportKey('raw', myKeyPair.publicKey);
+  return bufToB64(raw);
+}
+
+async function deriveSharedKey(theirPubB64) {
+  const raw = b64ToBuf(theirPubB64);
+  const theirKey = await crypto.subtle.importKey('raw', raw, { name:'ECDH', namedCurve:'P-256' }, true, []);
+  const hash = await crypto.subtle.digest('SHA-256', raw);
+  theirFingerprint = fmtFingerprint(hash);
+  document.getElementById('fp-theirs').textContent = theirFingerprint;
+  sharedKey = await crypto.subtle.deriveKey(
+    { name:'ECDH', public: theirKey },
+    myKeyPair.privateKey,
+    { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+  document.getElementById('enc-indicator').classList.add('active');
+  document.getElementById('enc-indicator').querySelector('span').textContent = 'encrypted';
+  addSystemMsg('🔐 end-to-end encryption active', true);
+}
+
+async function encryptText(text) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, sharedKey, new TextEncoder().encode(text));
+  const out = new Uint8Array(12+ct.byteLength); out.set(iv); out.set(new Uint8Array(ct),12);
+  return bufToB64(out.buffer);
+}
+
+async function decryptText(b64) {
+  const buf = b64ToBuf(b64);
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM',iv:buf.slice(0,12)}, sharedKey, buf.slice(12));
+  return new TextDecoder().decode(pt);
+}
+
+async function encryptBuf(ab) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, sharedKey, ab);
+  const out = new Uint8Array(12+ct.byteLength); out.set(iv); out.set(new Uint8Array(ct),12);
+  return out.buffer;
+}
+
+async function decryptBuf(ab) {
+  return crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(ab.slice(0,12))}, sharedKey, ab.slice(12));
+}
+
+// ── HELPERS ──
+function bufToB64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function b64ToBuf(b64) { const s=atob(b64),a=new Uint8Array(s.length); for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i); return a.buffer; }
+function fmtFingerprint(buf) { return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('').match(/.{1,4}/g).join(' ').toUpperCase().substring(0,47); }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function now() { return new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+function fmtSize(b) { if(b<1024)return b+' B'; if(b<1048576)return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function fileIcon(m) { if(!m)return'📄'; if(m.startsWith('image/'))return'🖼️'; if(m.startsWith('video/'))return'🎬'; if(m.startsWith('audio/'))return'🎵'; if(m.includes('pdf'))return'📕'; if(m.match(/zip|rar|7z/))return'🗜️'; if(m.match(/word|document/))return'📝'; if(m.match(/sheet|excel/))return'📊'; return'📄'; }
+
+// ── AUDIO ──
+function playNotif() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new(window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.setValueAtTime(880,ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(440,ctx.currentTime+0.1);
+    g.gain.setValueAtTime(0.12,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.3);
+    o.start(); o.stop(ctx.currentTime+0.3);
+  } catch(e){}
+}
+function toggleSound() {
+  soundEnabled=!soundEnabled;
+  const b=document.getElementById('sound-toggle');
+  b.textContent=soundEnabled?'🔔':'🔕';
+}
+
+// ── HISTORY ──
+function hKey() { return 'relay4_'+btoa(unescape(encodeURIComponent(roomPassword))).replace(/=/g,'').substring(0,30); }
+function saveMsg(e) { try{ const h=JSON.parse(localStorage.getItem(hKey())||'[]'); h.push(e); if(h.length>200)h.splice(0,h.length-200); localStorage.setItem(hKey(),JSON.stringify(h)); }catch(e){} }
+function loadHistory() {
+  try {
+    const h=JSON.parse(localStorage.getItem(hKey())||'[]'); if(!h.length)return;
+    document.getElementById('history-banner').style.display='flex';
+    document.getElementById('history-count').textContent=`📜 ${h.length} messages from previous sessions`;
+    addSystemMsg('── previous messages ──');
+    h.forEach(e=>{
+      if(e.type==='msg') renderMessage(e.text,e.from,e.name,e.time);
+      else if(e.type==='file-meta') renderFileMeta(e);
+    });
+    addSystemMsg('── today ──');
+  }catch(e){}
+}
+function clearHistory() {
+  if(!confirm('Clear chat history? Your connection stays active.'))return;
+  localStorage.removeItem(hKey());
+  document.getElementById('history-banner').style.display='none';
+  document.getElementById('messages').innerHTML='';
+  addSystemMsg('🗑 history cleared');
+}
+
+// ── LOBBY HELPERS ──
+function setLobbyStatus(m,err) { const e=document.getElementById('lobby-status'); e.textContent=m; e.className='lobby-status'+(err?' error':''); }
+function setStatus(state,text) { document.getElementById('dot').className='dot '+state; document.getElementById('status-text').textContent=text; }
+
+function getLobbyName() {
+  const n = document.getElementById('lobby-name').value.trim();
+  if (!n) { setLobbyStatus('Please enter your name.', true); return null; }
+  return n;
+}
+
+// ── CREATE ROOM ──
+async function createRoom() {
+  const name = getLobbyName(); if(!name) return;
+  roomPassword = document.getElementById('create-password').value.trim();
+  if (!roomPassword) { setLobbyStatus('Please enter a room password.', true); return; }
+
+  myName = name;
+  document.getElementById('create-btn').disabled = true;
+  setLobbyStatus('generating keys & creating room…');
+
+  await generateKeyPair();
+
+  // Let PeerJS assign a random ID — no invalid-id errors possible
+  peer = new Peer({ host:'0.peerjs.com', port:443, path:'/', secure:true });
+
+  peer.on('open', (id) => {
+    myPeerId = id;
+    setStatus('connecting', 'waiting for friend…');
+
+    // Save session so refresh restores it
+    saveSession({ role: 'host', name: myName, password: roomPassword, peerId: id });
+
+    // Build shareable link
+    const url = buildShareUrl(id);
+    document.getElementById('share-url').textContent = url;
+    document.getElementById('share-box').style.display = 'flex';
+    setLobbyStatus('');
+
+    document.getElementById('room-badge').textContent = roomPassword;
+
+    // Wait for someone to connect
+    peer.on('connection', (c) => {
+      conn = c;
+      document.getElementById('lobby').style.display = 'none';
+      loadHistory();
+      setupConn();
+    });
+  });
+
+  peer.on('error', (err) => {
+    setLobbyStatus('Connection error: ' + err.type + '. Please try again.', true);
+    document.getElementById('create-btn').disabled = false;
+  });
+}
+
+// ── JOIN ROOM ──
+async function joinRoom() {
+  const name = getLobbyName(); if(!name) return;
+
+  let hostId = document.getElementById('join-id').value.trim();
+  roomPassword = document.getElementById('join-password').value.trim();
+
+  if (!hostId) { setLobbyStatus('Please paste the room link or ID.', true); return; }
+  if (!roomPassword) { setLobbyStatus('Please enter the room password.', true); return; }
+
+  // Extract peer ID from link if a full URL was pasted
+  try {
+    const url = new URL(hostId);
+    hostId = url.searchParams.get('room') || hostId;
+  } catch(e) { /* not a URL, use as-is */ }
+
+  myName = name;
+  document.getElementById('join-btn').disabled = true;
+  setLobbyStatus('generating keys & connecting…');
+
+  await generateKeyPair();
+
+  peer = new Peer({ host:'0.peerjs.com', port:443, path:'/', secure:true });
+
+  peer.on('open', () => {
+    // Save session so refresh restores it
+    saveSession({ role: 'guest', name: myName, password: roomPassword, hostId });
+
+    document.getElementById('room-badge').textContent = roomPassword;
+    conn = peer.connect(hostId, { reliable:true });
+    document.getElementById('lobby').style.display = 'none';
+    loadHistory();
+    setupConn();
+    setStatus('connecting', 'connecting to room…');
+  });
+
+  peer.on('error', (err) => {
+    setLobbyStatus('Could not connect: ' + err.type, true);
+    document.getElementById('join-btn').disabled = false;
+  });
+}
+
+// ── SHARE LINK ──
+function buildShareUrl(peerId) {
+  return location.origin + location.pathname + '?room=' + encodeURIComponent(peerId);
+}
+
+function copyShareLink() {
+  const url = document.getElementById('share-url').textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const b = document.querySelector('.copy-btn');
+    b.textContent = 'Copied!';
+    setTimeout(()=>b.textContent='Copy link', 2000);
+  });
+}
+
+// ── Auto-fill join from URL param ──
+(function() {
+  const params = new URLSearchParams(location.search);
+  const room = params.get('room');
+  if (room) {
+    switchTab('join');
+    document.getElementById('join-id').value = room;
+    setLobbyStatus('Room link detected — enter your name and password to join.');
+  }
+})();
+
+// ── SETUP CONNECTION ──
+async function setupConn() {
+  conn.on('open', async () => {
+    setStatus('connecting', 'exchanging keys…');
+    document.getElementById('empty-state')?.remove();
+    conn.send({ type:'handshake', publicKey: await exportPublicKey(), name: myName });
+  });
+
+  conn.on('data', async (data) => {
+    if (data.type==='handshake') {
+      await deriveSharedKey(data.publicKey);
+      addSystemMsg(escHtml(data.name) + ' joined the room');
+      setStatus('connected', 'connected · encrypted');
+      document.getElementById('msg-input').disabled=false;
+      document.getElementById('send-btn').disabled=false;
+      document.getElementById('attach-btn').disabled=false;
+      document.getElementById('disappear-timer').disabled=false;
+
+      // Flush offline queue
+      if (offlineQueue.length > 0) {
+        addSystemMsg(`📬 sending ${offlineQueue.length} queued message${offlineQueue.length>1?'s':''}…`);
+        for (const pkt of offlineQueue) conn.send(pkt);
+        offlineQueue = [];
+      }
+
+    } else if (data.type==='msg') {
+      if (!sharedKey) return;
+      try {
+        const text = await decryptText(data.enc);
+        const incomingDisappear = parseInt(document.getElementById('disappear-timer').value) || 0;
+        renderMessage(text,'them',data.name,data.time,incomingDisappear,data.msgId,data.reply);
+        if (!incomingDisappear) saveMsg({type:'msg',text,from:'them',name:data.name,time:data.time});
+        playNotif();
+        if (document.hidden && Notification.permission==='granted') new Notification('RELAY · '+data.name,{body:text});
+      } catch(e) { addSystemMsg('⚠ could not decrypt a message — wrong password?'); }
+
+    } else if (data.type==='typing') {
+      document.getElementById('typing-indicator').classList.toggle('visible',data.value);
+
+    } else if (data.type==='read') {
+      // Mark our sent message as read (blue ticks)
+      const tick = document.getElementById('tick-' + data.msgId);
+      if (tick) { tick.textContent = '✓✓'; tick.classList.add('read'); }
+
+    } else if (data.type==='reaction') {
+      // Add reaction from friend to the message
+      applyReaction(data.msgId, data.emoji, 'them');
+
+    } else if (data.type==='file-start') {
+      incomingFiles[data.id]={...data,chunks:[]};
+
+    } else if (data.type==='file-chunk') {
+      incomingFiles[data.id]?.chunks.push(data.chunk);
+
+    } else if (data.type==='file-end') {
+      const f=incomingFiles[data.id];
+      if(f&&sharedKey){
+        try {
+          const totalLen=f.chunks.reduce((s,c)=>s+c.byteLength,0);
+          const combined=new Uint8Array(totalLen);
+          let off=0; for(const c of f.chunks){combined.set(new Uint8Array(c),off);off+=c.byteLength;}
+          const dec=await decryptBuf(combined.buffer);
+          const url=URL.createObjectURL(new Blob([dec],{type:f.mime}));
+          const fileDisappear = parseInt(document.getElementById('disappear-timer').value) || 0;
+          const fileEl = renderFile(url,f.name,f.size,f.mime,'them',f.senderName,data.time);
+          if (fileDisappear) scheduleDisappear(fileEl, fileDisappear);
+          if (!fileDisappear) saveMsg({type:'file-meta',fileName:f.name,fileSize:f.size,fileMime:f.mime,from:'them',name:f.senderName,time:data.time});
+          playNotif();
+        } catch(e){ addSystemMsg('⚠ could not decrypt file'); }
+        delete incomingFiles[data.id];
+      }
+
+    } else if (data.type==='disconnect') {
+      intentionalDisconnect = true; // they left on purpose — don't reconnect
+      addSystemMsg('⊘ '+(data.name||'peer')+' left the room');
+      setStatus('error','disconnected'); disableInput();
+    }
+  });
+
+  conn.on('close', () => {
+    if (intentionalDisconnect) {
+      addSystemMsg('⊘ connection closed');
+      setStatus('error', 'disconnected');
+      disableInput();
+      return;
+    }
+    addSystemMsg('⚠ connection lost — attempting to reconnect…');
+    setStatus('connecting', 'reconnecting…');
+    disableInput();
+    scheduleReconnect();
+  });
+
+  conn.on('error', () => {
+    if (!intentionalDisconnect) scheduleReconnect();
+  });
+}
+
+function disableInput() {
+  // Keep msg-input enabled so messages can be queued while offline
+  ['send-btn','attach-btn','disappear-timer'].forEach(id=>document.getElementById(id).disabled=true);
+  document.getElementById('msg-input').placeholder = 'type a message… (will be queued until friend rejoins)';
+}
+
+// ── SEND MESSAGE ──
+async function sendMessage() {
+  const el = document.getElementById('msg-input');
+  const text = el.value.trim();
+  if (!text || !sharedKey) return;
+
+  const time = now();
+  const disappearSecs = parseInt(document.getElementById('disappear-timer').value) || 0;
+  const msgId = 'm' + (++msgCounter);
+  const reply = replyingTo ? { msgId: replyingTo.msgId, name: replyingTo.name, text: replyingTo.text } : null;
+
+  const packet = { type:'msg', enc: await encryptText(text), name:myName, time, msgId, reply };
+
+  if (conn?.open) {
+    conn.send(packet);
+  } else {
+    // Queue for when friend comes back online
+    offlineQueue.push(packet);
+    addSystemMsg('📭 friend is offline — message queued, will send when they rejoin');
+  }
+
+  renderMessage(text, 'you', myName, time, disappearSecs, msgId, reply);
+  if (!disappearSecs) saveMsg({type:'msg', text, from:'you', name:myName, time});
+
+  el.value = ''; el.style.height = 'auto';
+  cancelReply();
+  if (isTyping) { conn?.send({type:'typing', value:false}); isTyping = false; }
+}
+
+// ── SEND FILE ──
+async function sendFile(input) {
+  const file=input.files[0]; if(!file)return; input.value='';
+  if(file.size>MAX_FILE_MB*1024*1024){alert('Max file size is '+MAX_FILE_MB+'MB.');return;}
+  if(!conn?.open||!sharedKey){alert('Not connected yet.');return;}
+  const id=Math.random().toString(36).substr(2,9),time=now();
+  conn.send({type:'file-start',id,name:file.name,size:file.size,mime:file.type,senderName:myName});
+  addSystemMsg('📤 encrypting & sending '+file.name+'…');
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const enc=await encryptBuf(e.target.result);
+    let off=0;
+    while(off<enc.byteLength){
+      conn.send({type:'file-chunk',id,chunk:enc.slice(off,off+CHUNK_SIZE)});
+      off+=CHUNK_SIZE;
+      await new Promise(r=>setTimeout(r,10));
+    }
+    conn.send({type:'file-end',id,time});
+    const outFileDisappear = parseInt(document.getElementById('disappear-timer').value) || 0;
+    const outFileEl = renderFile(URL.createObjectURL(file),file.name,file.size,file.type,'you',myName,time);
+    if (outFileDisappear) scheduleDisappear(outFileEl, outFileDisappear);
+    if (!outFileDisappear) saveMsg({type:'file-meta',fileName:file.name,fileSize:file.size,fileMime:file.type,from:'you',name:myName,time});
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── DISAPPEARING MESSAGES ──
+function fmtCountdown(s) {
+  if (s >= 86400) return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h';
+  if (s >= 3600)  return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+  if (s >= 60)    return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return s + 's';
+}
+
+function scheduleDisappear(el, seconds) {
+  if (!seconds || seconds <= 0) return;
+  const ms = seconds * 1000;
+  const timerEl = document.createElement('span');
+  timerEl.className = 'disappear-badge';
+  timerEl.textContent = ' ⏱ ' + fmtCountdown(seconds);
+  el.querySelector('.msg-meta')?.appendChild(timerEl);
+
+  let remaining = seconds;
+  // Update every second for short timers, every minute for long ones
+  const tickInterval = seconds >= 3600 ? 60000 : 1000;
+  const interval = setInterval(() => {
+    remaining -= (tickInterval / 1000);
+    if (timerEl) timerEl.textContent = ' ⏱ ' + fmtCountdown(Math.max(0, Math.round(remaining)));
+    if (remaining <= 0) clearInterval(interval);
+  }, tickInterval);
+
+  setTimeout(() => {
+    clearInterval(interval);
+    el.classList.add('fading');
+    setTimeout(() => el.remove(), 1000);
+  }, ms);
+}
+
+function formatDisappearLabel(s) {
+  if (s < 3600) return (s/60) + ' minutes';
+  if (s < 86400) return (s/3600) + ' hour' + (s===3600?'':'s');
+  if (s < 604800) return (s/86400) + ' day' + (s===86400?'':'s');
+  return (s/604800) + ' week' + (s===604800?'':'s');
+}
+
+// ── RENDER ──
+const messagesEl=document.getElementById('messages');
+function scroll(){messagesEl.scrollTop=messagesEl.scrollHeight;}
+
+function renderMessage(text, from, name, time, disappearSecs, msgId, replyTo) {
+  msgId = msgId || ('m' + (++msgCounter));
+  const w = document.createElement('div');
+  w.className = 'msg ' + from;
+  w.dataset.msgId = msgId;
+  w.dataset.text = text;
+  w.dataset.name = from === 'you' ? 'you' : name;
+
+  const replyHtml = replyTo
+    ? `<div class="reply-preview" onclick="scrollToMsg('${replyTo.msgId}')">↩ ${escHtml(replyTo.name)}: ${escHtml(replyTo.text)}</div>`
+    : '';
+
+  const tickHtml = from === 'you' ? `<span class="read-tick" id="tick-${msgId}">✓</span>` : '';
+
+  w.innerHTML = `
+    <div class="msg-wrap">
+      <div class="msg-actions">
+        <button class="action-btn" onclick="startReply('${msgId}')" title="Reply">↩</button>
+        <button class="action-btn" onclick="toggleEmojiPicker('${msgId}')" title="React">😊</button>
+      </div>
+      <div class="emoji-picker" id="ep-${msgId}">
+        ${EMOJIS.map(e => `<span class="emoji-opt" onclick="sendReaction('${msgId}','${e}')">${e}</span>`).join('')}
+      </div>
+      ${replyHtml}
+      <div class="msg-bubble">${escHtml(text)}</div>
+      <div class="reactions" id="reactions-${msgId}"></div>
+    </div>
+    <div class="msg-meta">
+      ${from === 'you' ? 'you' : escHtml(name)} · ${time}
+      <span class="lock-icon">🔒</span>
+      ${tickHtml}
+    </div>`;
+
+  messagesEl.appendChild(w); scroll();
+  if (disappearSecs) scheduleDisappear(w, disappearSecs);
+
+  // If this is an incoming message and we're connected, send read receipt
+  if (from === 'them' && conn?.open) {
+    // Use IntersectionObserver to mark read only when visible
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        conn.send({ type: 'read', msgId });
+        observer.disconnect();
+      }
+    }, { threshold: 0.5 });
+    observer.observe(w);
+  }
+
+  return w;
+}
+
+function renderFileMeta(e){
+  const w=document.createElement('div'); w.className='msg '+e.from;
+  w.innerHTML=`<div class="msg-meta">${e.from==='you'?'you':escHtml(e.name)} · ${e.time} <span class="lock-icon">🔒</span></div><div class="file-bubble"><div class="file-icon">${fileIcon(e.fileMime)}</div><div><div class="file-name">${escHtml(e.fileName)}</div><div class="file-size">${fmtSize(e.fileSize)} · history only</div></div></div>`;
+  messagesEl.appendChild(w); scroll();
+}
+
+function renderFile(url,name,size,mime,from,senderName,time){
+  const w=document.createElement('div'); w.className='msg '+from;
+  const meta=`<div class="msg-meta">${from==='you'?'you':escHtml(senderName)} · ${time} <span class="lock-icon">🔒</span></div>`;
+  if(mime?.startsWith('image/')){
+    w.innerHTML=meta+`<div class="img-bubble"><img src="${url}" onclick="openLightbox('${url}')"></div>`;
+  }else{
+    w.innerHTML=meta+`<a class="file-bubble" href="${url}" download="${escHtml(name)}"><div class="file-icon">${fileIcon(mime)}</div><div><div class="file-name">${escHtml(name)}</div><div class="file-size">${fmtSize(size)} · click to download</div></div></a>`;
+  }
+  messagesEl.appendChild(w); scroll();
+  return w;
+}
+
+function addSystemMsg(text,secure){
+  const el=document.createElement('div'); el.className='sys-msg'+(secure?' secure':''); el.textContent=text;
+  messagesEl.appendChild(el); scroll();
+}
+
+function openLightbox(src){document.getElementById('lightbox-img').src=src;document.getElementById('lightbox').classList.add('open');}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
+
+// ── AUTO-RECONNECT ──
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+    addSystemMsg('⊘ could not reconnect after several attempts — please refresh the page');
+    setStatus('error', 'disconnected');
+    return;
+  }
+
+  const delaySecs = RECONNECT_DELAYS[reconnectAttempt] || 300;
+  reconnectAttempt++;
+  let remaining = delaySecs;
+
+  setStatus('connecting', `reconnecting in ${remaining}s… (${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+
+  // Countdown ticker
+  const ticker = setInterval(() => {
+    remaining--;
+    if (remaining > 0) {
+      setStatus('connecting', `reconnecting in ${remaining}s… (${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+    } else {
+      clearInterval(ticker);
+    }
+  }, 1000);
+
+  reconnectTimer = setTimeout(async () => {
+    clearInterval(ticker);
+    setStatus('connecting', `reconnecting… (attempt ${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+    await doReconnect();
+  }, delaySecs * 1000);
+}
+
+async function doReconnect() {
+  try {
+    // Destroy old peer cleanly
+    if (peer && !peer.destroyed) peer.destroy();
+
+    const session = JSON.parse(sessionStorage.getItem('relay_session') || '{}');
+    if (!session.name || !session.password) {
+      addSystemMsg('⚠ no session found — please refresh');
+      return;
+    }
+
+    // Regenerate key pair for new session
+    await generateKeyPair();
+    sharedKey = null;
+
+    if (session.role === 'host') {
+      // Re-create as host with a new peer ID
+      peer = new Peer({ host:'0.peerjs.com', port:443, path:'/', secure:true });
+      peer.on('open', (id) => {
+        saveSession({ role:'host', name:session.name, password:session.password, peerId:id });
+        setStatus('connecting', 'reconnected — waiting for friend to rejoin…');
+        addSystemMsg('🔄 reconnected — ask your friend to refresh their page too');
+        reconnectAttempt = 0;
+        peer.on('connection', (c) => { conn = c; enableInput(); setupConn(); });
+      });
+      peer.on('error', () => scheduleReconnect());
+
+    } else if (session.role === 'guest' && session.hostId) {
+      // Re-join as guest
+      peer = new Peer({ host:'0.peerjs.com', port:443, path:'/', secure:true });
+      peer.on('open', () => {
+        conn = peer.connect(session.hostId, { reliable:true });
+        enableInput();
+        setupConn();
+        setStatus('connecting', 'reconnecting to room…');
+        reconnectAttempt = 0;
+      });
+      peer.on('error', () => scheduleReconnect());
+    }
+  } catch(e) {
+    scheduleReconnect();
+  }
+}
+
+function enableInput() {
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('attach-btn').disabled = false;
+  document.getElementById('disappear-timer').disabled = false;
+  document.getElementById('msg-input').placeholder = 'type a message… (Enter to send)';
+}
+
+// ── REPLY ──
+function startReply(msgId) {
+  const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+  if (!msgEl) return;
+  replyingTo = { msgId, name: msgEl.dataset.name, text: msgEl.dataset.text };
+  document.getElementById('reply-bar').classList.add('visible');
+  document.getElementById('reply-bar-name').textContent = replyingTo.name;
+  document.getElementById('reply-bar-text').textContent = replyingTo.text.substring(0, 60) + (replyingTo.text.length > 60 ? '…' : '');
+  document.getElementById('msg-input').focus();
+  closeAllEmojiPickers();
+}
+
+function cancelReply() {
+  replyingTo = null;
+  document.getElementById('reply-bar').classList.remove('visible');
+}
+
+function scrollToMsg(msgId) {
+  const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+  if (el) { el.scrollIntoView({ behavior:'smooth', block:'center' }); el.style.background='rgba(44,62,80,0.1)'; setTimeout(()=>el.style.background='',1200); }
+}
+
+// ── REACTIONS ──
+function toggleEmojiPicker(msgId) {
+  closeAllEmojiPickers();
+  const ep = document.getElementById('ep-' + msgId);
+  if (ep) ep.classList.toggle('open');
+}
+
+function closeAllEmojiPickers() {
+  document.querySelectorAll('.emoji-picker.open').forEach(e => e.classList.remove('open'));
+}
+
+async function sendReaction(msgId, emoji) {
+  closeAllEmojiPickers();
+  applyReaction(msgId, emoji, 'you');
+  if (conn?.open) conn.send({ type:'reaction', msgId, emoji });
+}
+
+function applyReaction(msgId, emoji, from) {
+  const container = document.getElementById('reactions-' + msgId);
+  if (!container) return;
+
+  // Find existing pill for this emoji
+  let pill = container.querySelector(`[data-emoji="${emoji}"]`);
+  if (pill) {
+    const countEl = pill.querySelector('.reaction-count');
+    const current = parseInt(countEl.textContent) || 1;
+    countEl.textContent = current + 1;
+    if (from === 'you') pill.classList.add('mine');
+  } else {
+    pill = document.createElement('div');
+    pill.className = 'reaction-pill' + (from==='you' ? ' mine' : '');
+    pill.dataset.emoji = emoji;
+    pill.innerHTML = `${emoji} <span class="reaction-count"></span>`;
+    pill.onclick = () => sendReaction(msgId, emoji);
+    container.appendChild(pill);
+  }
+}
+
+// Close emoji pickers on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.emoji-picker') && !e.target.closest('.action-btn')) {
+    closeAllEmojiPickers();
+  }
+});
+
+// ── INPUT EVENTS ──
+const msgInput=document.getElementById('msg-input');
+msgInput.addEventListener('input',()=>{
+  msgInput.style.height='auto'; msgInput.style.height=Math.min(msgInput.scrollHeight,120)+'px';
+  if(conn?.open){
+    if(!isTyping){isTyping=true;conn.send({type:'typing',value:true});}
+    clearTimeout(typingTimer);
+    typingTimer=setTimeout(()=>{isTyping=false;conn.send({type:'typing',value:false});},1500);
+  }
+});
+msgInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}});
+document.getElementById('disappear-timer').addEventListener('change', function() {
+  const v = parseInt(this.value);
+  this.classList.toggle('active', v > 0);
+  if (v > 0) addSystemMsg('⏱ your messages will disappear after ' + formatDisappearLabel(v));
+  else addSystemMsg('⏱ disappearing messages turned off');
+});
+document.getElementById('lobby-name').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('create-password').focus();});
+window.addEventListener('beforeunload', () => {
+  intentionalDisconnect = true;
+  if (conn?.open) conn.send({ type:'disconnect', name: myName });
+});
+if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
+
+// ── SESSION PERSISTENCE (survive refresh) ──
+function saveSession(data) {
+  try { sessionStorage.setItem('relay_session', JSON.stringify(data)); } catch(e) {}
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem('relay_session'); } catch(e) {}
+}
+
+function resumeSession() {
+  try {
+    const raw = sessionStorage.getItem('relay_session');
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    if (!s.name || !s.password) return false;
+
+    // Pre-fill lobby fields silently and re-enter
+    myName = s.name;
+    roomPassword = s.password;
+
+    if (s.role === 'host') {
+      // Re-create the room as host — friend will need to rejoin
+      document.getElementById('lobby-name').value = s.name;
+      document.getElementById('create-password').value = s.password;
+      document.getElementById('lobby-status').textContent = 'Resuming your room after refresh…';
+      createRoom();
+    } else if (s.role === 'guest' && s.hostId) {
+      // Re-join as guest
+      document.getElementById('lobby-name').value = s.name;
+      document.getElementById('join-id').value = s.hostId;
+      document.getElementById('join-password').value = s.password;
+      switchTab('join');
+      document.getElementById('lobby-status').textContent = 'Reconnecting after refresh…';
+      joinRoom();
+    }
+    return true;
+  } catch(e) { return false; }
+}
+
+// Try to resume on load
+resumeSession();
+</script>
+</body>
+</html>
